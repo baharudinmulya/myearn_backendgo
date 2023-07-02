@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"os"
-	"fmt"
 
-	"github.com/gin-gonic/gin"
-	"github.com/dgrijalva/jwt-go"
 	"net/http"
 	"time"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gin-gonic/gin"
 )
 
 type Claims struct {
@@ -35,27 +35,30 @@ func LoginHandler(c *gin.Context) {
 	hashedPasswordStr := hex.EncodeToString(hashedPassword[:])
 
 	// Database connection
-	db, err := sql.Open(os.Getenv("DB_TYPE"), os.Getenv("DB_CONNECTION"));
+	db, err := sql.Open(os.Getenv("DB_TYPE"), os.Getenv("DB_CONNECTION"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to the database"})
 		return
 	}
 	defer db.Close()
 
 	// Fetch user from the database
 	var user User
-	query := "SELECT * FROM users WHERE username=? AND password=?"
-	if err := db.QueryRow(query, creds.Username, hashedPasswordStr).Scan(&user.ID, &user.Name, &user.Password, &user.Created); err == nil {
-		fmt.Println("Query Error:", err)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials", "id":user.ID,"name":user.Name,"err":hashedPasswordStr})
-		return
+	query := "SELECT user_id, username, password, created FROM users WHERE username=? AND password=?"
+	if err := db.QueryRow(query, creds.Username, hashedPasswordStr).Scan(&user.ID, &user.Name, &user.Password, &user.Created); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+			return
+		}
+		// c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user from the database"})
+		// return
 	}
 
 	// Create the JWT token
 	claims := &Claims{
-		UserID: user.ID, // Example user ID
+		UserID: user.ID,
 		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(time.Hour * 24).Unix(), // Token expiration time
+			ExpiresAt: time.Now().Add(time.Hour * 5).Unix(),
 		},
 	}
 
@@ -68,4 +71,34 @@ func LoginHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"token": signedToken})
+}
+
+func SignUpHandler(c *gin.Context) {
+	var creds Credentials
+	if err := c.ShouldBindJSON(&creds); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	// Hash the password
+	hashedPassword := sha256.Sum256([]byte(creds.Password))
+	hashedPasswordStr := hex.EncodeToString(hashedPassword[:])
+
+	// Database connection
+	db, err := sql.Open(os.Getenv("DB_TYPE"), os.Getenv("DB_CONNECTION"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to the database"})
+		return
+	}
+	defer db.Close()
+
+	// Insert user into the database
+	query := "INSERT INTO users (username, password) VALUES (?, ?)"
+	_, err = db.Exec(query, creds.Username, hashedPasswordStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User created successfully"})
 }
