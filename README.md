@@ -6,3 +6,5 @@ Once run, this command will display a link to the local server.
 go run main.go
 ```
 
+user : admin
+pass : password
